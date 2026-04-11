@@ -18,6 +18,7 @@ from datetime import date
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 sys.path.insert(0, os.path.abspath("."))
+sys.path.insert(0, os.path.abspath("_extensions"))
 
 # -- General configuration -----------------------------------------------------
 
@@ -26,7 +27,7 @@ sys.path.insert(0, os.path.abspath("."))
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ["sphinx.ext.intersphinx", "sphinx.ext.todo"]
+extensions = ["sphinx.ext.intersphinx", "sphinx.ext.todo", "langref_redirect"]
 
 # When building man pages, we do not use the markdown pages,
 # So, we can continue without the myst_parser dependencies.
