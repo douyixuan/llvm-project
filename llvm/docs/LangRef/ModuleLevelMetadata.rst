@@ -7,7 +7,6 @@ LangRef: Module-Level Metadata
    :depth: 3
 
 
-
 Module Flags Metadata
 =====================
 
@@ -15,7 +14,7 @@ Information about the module as a whole is difficult to convey to LLVM's
 subsystems. The LLVM IR isn't sufficient to transmit this information.
 The ``llvm.module.flags`` named metadata exists in order to facilitate
 this. These flags are in the form of key / value pairs --- much like a
-dictionary --- making it easy for any subsystem who cares about a flag to
+dictionary --- making it easy for any subsystem that cares about a flag to
 look it up.
 
 The ``llvm.module.flags`` metadata contains a list of metadata triplets.
@@ -257,7 +256,6 @@ For example:
 
 This will change the stack alignment to 8B.
 
-
 Embedded Objects Names Metadata
 ===============================
 
@@ -271,13 +269,12 @@ stored at::
     !llvm.embedded.objects = !{!0}
     !0 = !{ptr @object, !".section"}
 
-
 Automatic Linker Flags Named Metadata
 =====================================
 
 Some targets support embedding of flags to the linker inside individual object
 files. Typically this is used in conjunction with language extensions which
-allow source files to contain linker command line options, and have these
+allow source files to contain linker command-line options, and have these
 automatically be transmitted to the linker via object files.
 
 These flags are encoded in the IR using named metadata with the name
@@ -296,13 +293,12 @@ framework::
 The metadata encoding as lists of lists of options, as opposed to a collapsed
 list of options, is chosen so that the IR encoding can use multiple option
 strings to specify e.g., a single library, while still having that specifier be
-preserved as an atomic element that can be recognized by a target specific
+preserved as an atomic element that can be recognized by a target-specific
 assembly writer or object file emitter.
 
 Each individual option is required to be either a valid option for the target's
-linker, or an option that is reserved by the target specific assembly writer or
+linker, or an option that is reserved by the target-specific assembly writer or
 object file emitter. No other aspect of these options is defined by the IR.
-
 
 Dependent Libs Named Metadata
 =============================
@@ -325,4 +321,26 @@ For example, the following metadata section contains two library specifiers::
 
 Each library specifier will be handled independently by the consuming linker.
 The effect of the library specifiers are defined by the consuming linker.
+
+'``llvm.errno.tbaa``' Named Metadata
+====================================
+
+The module-level ``!llvm.errno.tbaa`` metadata specifies the TBAA nodes used
+for accessing ``errno``. These nodes are guaranteed to represent int-compatible
+accesses according to C/C++ strict aliasing rules. This should let LLVM alias
+analyses to reason about aliasing with ``errno`` when calling library functions
+that may set ``errno``, allowing optimizations such as store-to-load forwarding
+across such routines.
+
+For example, the following is a valid metadata specifying the TBAA information
+for an integer access::
+
+    !llvm.errno.tbaa = !{!0}
+    !0 = !{!1, !1, i64 0}
+    !1 = !{!"int", !2, i64 0}
+    !2 = !{!"omnipotent char", !3, i64 0}
+    !3 = !{!"Simple C/C++ TBAA"}
+
+Multiple TBAA operands are allowed to support merging of modules that may use
+different TBAA hierarchies (e.g., when mixing C and C++).
 

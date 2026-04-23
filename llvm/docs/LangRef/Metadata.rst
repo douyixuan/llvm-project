@@ -9,6 +9,7 @@ LangRef: Metadata
 
 .. _metadata:
 
+
 Metadata
 ========
 
@@ -172,10 +173,10 @@ Unlike instructions, global objects (functions and global variables) may have
 multiple metadata attachments with the same identifier.
 
 A transformation is required to drop any metadata attachment that it
-does not know or know it can't preserve. Currently there is an
+does not recognize or cannot preserve. Currently there is an
 exception for metadata attachment to globals for ``!func_sanitize``,
-``!type``, ``!absolute_symbol`` and ``!associated`` which can't be
-unconditionally dropped unless the global is itself deleted.
+``!type``, ``!absolute_symbol``, ``!implicit.ref`` and ``!associated`` which
+can't be unconditionally dropped unless the global is itself deleted.
 
 Metadata attached to a module using named metadata may not be dropped, with
 the exception of debug metadata (named metadata with the name ``!llvm.dbg.*``).
@@ -268,6 +269,35 @@ following:
   DW_ATE_signed_char   = 6
   DW_ATE_unsigned      = 7
   DW_ATE_unsigned_char = 8
+
+.. _DIFixedPointType:
+
+DIFixedPointType
+""""""""""""""""
+
+``DIFixedPointType`` nodes represent fixed-point types.  A fixed-point
+type is conceptually an integer with a scale factor.
+``DIFixedPointType`` is derived from ``DIBasicType`` and inherits its
+attributes.  However, only certain encodings are accepted:
+
+.. code-block:: text
+
+  DW_ATE_signed_fixed   = 13
+  DW_ATE_unsigned_fixed = 14
+
+There are three kinds of fixed-point type: binary, where the scale
+factor is a power of 2; decimal, where the scale factor is a power of
+10; and rational, where the scale factor is an arbitrary rational
+number.
+
+.. code-block:: text
+
+    !0 = !DIFixedPointType(name: "decimal", size: 8, encoding: DW_ATE_signed_fixed,
+                           kind: Decimal, factor: -4)
+    !1 = !DIFixedPointType(name: "binary", size: 8, encoding: DW_ATE_unsigned_fixed,
+                           kind: Binary, factor: -16)
+    !2 = !DIFixedPointType(name: "rational", size: 8, encoding: DW_ATE_signed_fixed,
+                           kind: Rational, numerator: 1234, denominator: 5678)
 
 .. _DISubroutineType:
 
@@ -374,25 +404,27 @@ The following ``tag:`` values are valid:
   DW_TAG_enumeration_type = 4
   DW_TAG_structure_type   = 19
   DW_TAG_union_type       = 23
+  DW_TAG_variant          = 25
+  DW_TAG_variant_part     = 51
 
 For ``DW_TAG_array_type``, the ``elements:`` should be :ref:`subrange
 descriptors <DISubrange>` or :ref:`subrange descriptors
 <DISubrangeType>`, each representing the range of subscripts at that
 level of indexing. The ``DIFlagVector`` flag to ``flags:`` indicates
 that an array type is a native packed vector. The optional
-``dataLocation`` is a DIExpression that describes how to get from an
+``dataLocation`` is a ``DIExpression`` that describes how to get from an
 object's address to the actual raw data, if they aren't
 equivalent. This is only supported for array types, particularly to
 describe Fortran arrays, which have an array descriptor in addition to
-the array data. Alternatively it can also be DIVariable which has the
+the array data. Alternatively it can also be ``DIVariable`` which has the
 address of the actual raw data. The Fortran language supports pointer
 arrays which can be attached to actual arrays, this attachment between
 pointer and pointee is called association.  The optional
-``associated`` is a DIExpression that describes whether the pointer
+``associated`` is a ``DIExpression`` that describes whether the pointer
 array is currently associated.  The optional ``allocated`` is a
-DIExpression that describes whether the allocatable array is currently
-allocated.  The optional ``rank`` is a DIExpression that describes the
-rank (number of dimensions) of fortran assumed rank array (rank is
+``DIExpression`` that describes whether the allocatable array is currently
+allocated.  The optional ``rank`` is a ``DIExpression`` that describes the
+rank (number of dimensions) of Fortran assumed rank array (rank is
 known at runtime).  The optional ``bitStride`` is an unsigned constant
 that describes the number of bits occupied by an element of the array;
 this is only needed if it differs from the element type's natural
@@ -408,6 +440,16 @@ For ``DW_TAG_structure_type``, ``DW_TAG_class_type``, and
 <DIDerivedType>` with ``tag: DW_TAG_member``, ``tag: DW_TAG_inheritance``, or
 ``tag: DW_TAG_friend``; or :ref:`subprograms <DISubprogram>` with
 ``isDefinition: false``.
+
+``DW_TAG_variant_part`` introduces a variant part of a structure type.
+This should have a discriminant, a member that is used to decide which
+elements are active.  The elements of the variant part should each be
+a ``DW_TAG_member``; if a member has a non-null ``ExtraData``, then it
+is a ``ConstantInt`` or ``ConstantDataArray`` indicating the values of
+the discriminant member that cause the activation of this branch.  A
+member itself may be of composite type with tag ``DW_TAG_variant``; in
+this case the members of that composite type are inlined into the
+current one.
 
 .. _DISubrange:
 
@@ -674,160 +716,22 @@ parameter, and it will be included in the ``retainedNodes:`` field of its
                           type: !3)
     !2 = !DILocalVariable(name: "y", scope: !5, file: !2, line: 7, type: !3)
 
-.. _DIExpression:
-
 DIExpression
 """"""""""""
 
 ``DIExpression`` nodes represent expressions that are inspired by the DWARF
-expression language. They are used in :ref:`debug records <debugrecords>`
-(such as ``#dbg_declare`` and ``#dbg_value``) to describe how the
-referenced LLVM variable relates to the source language variable. Debug
-expressions are interpreted left-to-right: start by pushing the value/address
-operand of the record onto a stack, then repeatedly push and evaluate
-opcodes from the DIExpression until the final variable description is produced.
+expression language. They are used in :ref:`debug records <debug_records>`
+(such as ``#dbg_declare`` and ``#dbg_value``) to describe how the referenced
+LLVM variable relates to the source language variable.
 
-The current supported opcode vocabulary is limited:
-
-- ``DW_OP_deref`` dereferences the top of the expression stack.
-- ``DW_OP_plus`` pops the last two entries from the expression stack, adds
-  them together and appends the result to the expression stack.
-- ``DW_OP_minus`` pops the last two entries from the expression stack, subtracts
-  the last entry from the second last entry and appends the result to the
-  expression stack.
-- ``DW_OP_plus_uconst, 93`` adds ``93`` to the working expression.
-- ``DW_OP_LLVM_fragment, 16, 8`` specifies the offset and size (``16`` and ``8``
-  here, respectively) of the variable fragment from the working expression. Note
-  that contrary to DW_OP_bit_piece, the offset is describing the location
-  within the described source variable.
-- ``DW_OP_LLVM_convert, 16, DW_ATE_signed`` specifies a bit size and encoding
-  (``16`` and ``DW_ATE_signed`` here, respectively) to which the top of the
-  expression stack is to be converted. Maps into a ``DW_OP_convert`` operation
-  that references a base type constructed from the supplied values.
-- ``DW_OP_LLVM_extract_bits_sext, 16, 8,`` specifies the offset and size
-  (``16`` and ``8`` here, respectively) of bits that are to be extracted and
-  sign-extended from the value at the top of the expression stack. If the top of
-  the expression stack is a memory location then these bits are extracted from
-  the value pointed to by that memory location. Maps into a ``DW_OP_shl``
-  followed by ``DW_OP_shra``.
-- ``DW_OP_LLVM_extract_bits_zext`` behaves similarly to
-  ``DW_OP_LLVM_extract_bits_sext``, but zero-extends instead of sign-extending.
-  Maps into a ``DW_OP_shl`` followed by ``DW_OP_shr``.
-- ``DW_OP_LLVM_tag_offset, tag_offset`` specifies that a memory tag should be
-  optionally applied to the pointer. The memory tag is derived from the
-  given tag offset in an implementation-defined manner.
-- ``DW_OP_swap`` swaps top two stack entries.
-- ``DW_OP_xderef`` provides extended dereference mechanism. The entry at the top
-  of the stack is treated as an address. The second stack entry is treated as an
-  address space identifier.
-- ``DW_OP_stack_value`` marks a constant value.
-- ``DW_OP_LLVM_entry_value, N`` refers to the value a register had upon
-  function entry. When targeting DWARF, a ``DBG_VALUE(reg, ...,
-  DIExpression(DW_OP_LLVM_entry_value, 1, ...)`` is lowered to
-  ``DW_OP_entry_value [reg], ...``, which pushes the value ``reg`` had upon
-  function entry onto the DWARF expression stack.
-
-  The next ``(N - 1)`` operations will be part of the ``DW_OP_entry_value``
-  block argument. For example, ``!DIExpression(DW_OP_LLVM_entry_value, 1,
-  DW_OP_plus_uconst, 123, DW_OP_stack_value)`` specifies an expression where
-  the entry value of ``reg`` is pushed onto the stack, and is added with 123.
-  Due to framework limitations ``N`` must be 1, in other words,
-  ``DW_OP_entry_value`` always refers to the value/address operand of the
-  instruction.
-
-  Because ``DW_OP_LLVM_entry_value`` is defined in terms of registers, it is
-  usually used in MIR, but it is also allowed in LLVM IR when targeting a
-  :ref:`swiftasync <swiftasync>` argument. The operation is introduced by:
-
-    - ``LiveDebugValues`` pass, which applies it to function parameters that
-      are unmodified throughout the function. Support is limited to simple
-      register location descriptions, or as indirect locations (e.g.,
-      parameters passed-by-value to a callee via a pointer to a temporary copy
-      made in the caller).
-    - ``AsmPrinter`` pass when a call site parameter value
-      (``DW_AT_call_site_parameter_value``) is represented as entry value of
-      the parameter.
-    - ``CoroSplit`` pass, which may move variables from allocas into a
-      coroutine frame. If the coroutine frame is a
-      :ref:`swiftasync <swiftasync>` argument, the variable is described with
-      an ``DW_OP_LLVM_entry_value`` operation.
-
-- ``DW_OP_LLVM_arg, N`` is used in debug intrinsics that refer to more than one
-  value, such as one that calculates the sum of two registers. This is always
-  used in combination with an ordered list of values, such that
-  ``DW_OP_LLVM_arg, N`` refers to the ``N``\ :sup:`th` element in that list. For
-  example, ``!DIExpression(DW_OP_LLVM_arg, 0, DW_OP_LLVM_arg, 1, DW_OP_minus,
-  DW_OP_stack_value)`` used with the list ``(%reg1, %reg2)`` would evaluate to
-  ``%reg1 - reg2``. This list of values should be provided by the containing
-  intrinsic/instruction.
-- ``DW_OP_breg`` (or ``DW_OP_bregx``) represents a content on the provided
-  signed offset of the specified register. The opcode is only generated by the
-  ``AsmPrinter`` pass to describe call site parameter value which requires an
-  expression over two registers.
-- ``DW_OP_push_object_address`` pushes the address of the object which can then
-  serve as a descriptor in subsequent calculation. This opcode can be used to
-  calculate bounds of fortran allocatable array which has array descriptors.
-- ``DW_OP_over`` duplicates the entry currently second in the stack at the top
-  of the stack. This opcode can be used to calculate bounds of fortran assumed
-  rank array which has rank known at run time and current dimension number is
-  implicitly first element of the stack.
-- ``DW_OP_LLVM_implicit_pointer`` It specifies the dereferenced value. It can
-  be used to represent pointer variables which are optimized out but the value
-  it points to is known. This operator is required as it is different than DWARF
-  operator DW_OP_implicit_pointer in representation and specification (number
-  and types of operands) and later can not be used as multiple level.
-
-.. code-block:: text
-
-    IR for "*ptr = 4;"
-    --------------
-      #dbg_value(i32 4, !17, !DIExpression(DW_OP_LLVM_implicit_pointer), !20)
-    !17 = !DILocalVariable(name: "ptr1", scope: !12, file: !3, line: 5,
-                           type: !18)
-    !18 = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: !19, size: 64)
-    !19 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
-    !20 = !DILocation(line: 10, scope: !12)
-
-    IR for "**ptr = 4;"
-    --------------
-      #dbg_value(i32 4, !17,
-        !DIExpression(DW_OP_LLVM_implicit_pointer, DW_OP_LLVM_implicit_pointer),
-        !21)
-    !17 = !DILocalVariable(name: "ptr1", scope: !12, file: !3, line: 5,
-                           type: !18)
-    !18 = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: !19, size: 64)
-    !19 = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: !20, size: 64)
-    !20 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
-    !21 = !DILocation(line: 10, scope: !12)
-
-DWARF specifies three kinds of simple location descriptions: Register, memory,
-and implicit location descriptions.  Note that a location description is
-defined over certain ranges of a program, i.e the location of a variable may
-change over the course of the program. Register and memory location
-descriptions describe the *concrete location* of a source variable (in the
-sense that a debugger might modify its value), whereas *implicit locations*
-describe merely the actual *value* of a source variable which might not exist
-in registers or in memory (see ``DW_OP_stack_value``).
-
-A ``#dbg_declare`` record describes an indirect value (the address) of a
-source variable. The first operand of the record must be an address of some
-kind. A DIExpression operand to the record refines this address to produce a
-concrete location for the source variable.
-
-A ``#dbg_value`` record describes the direct value of a source variable.
-The first operand of the record may be a direct or indirect value. A
-DIExpression operand to the record refines the first operand to produce a
-direct value. For example, if the first operand is an indirect value, it may be
-necessary to insert ``DW_OP_deref`` into the DIExpression in order to produce a
-valid debug record.
+See :ref:`diexpression` for details.
 
 .. note::
 
-   A DIExpression is interpreted in the same way regardless of which kind of
-   debug record it's attached to.
+   ``DIExpression``\s are always printed and parsed inline; they can never be
+   referenced by an ID (e.g., ``!1``).
 
-   DIExpressions are always printed and parsed inline; they can never be
-   referenced by an ID (e.g. ``!1``).
+Some examples of expressions:
 
 .. code-block:: text
 
@@ -866,7 +770,7 @@ DIArgList
 ``DIArgList`` nodes hold a list of constant or SSA value references. These are
 used in :ref:`debug records <debugrecords>` in combination with a
 ``DIExpression`` that uses the
-``DW_OP_LLVM_arg`` operator. Because a DIArgList may refer to local values
+``DW_OP_LLVM_arg`` operator. Because a ``DIArgList`` may refer to local values
 within a function, it must only be used as a function argument, must always be
 inlined, and cannot appear in named metadata.
 
@@ -884,7 +788,7 @@ These flags encode various properties of DINodes.
 
 The `ExportSymbols` flag marks a class, struct or union whose members
 may be referenced as if they were defined in the containing class or
-union. This flag is used to decide whether the DW_AT_export_symbols can
+union. This flag is used to decide whether the ``DW_AT_export_symbols`` can
 be used for the structure type.
 
 DIObjCProperty
@@ -943,16 +847,25 @@ appear in the included source file.
 DILabel
 """""""
 
-``DILabel`` nodes represent labels within a :ref:`DISubprogram`. All fields of
-a ``DILabel`` are mandatory. The ``scope:`` field must be one of either a
-:ref:`DILexicalBlockFile`, a :ref:`DILexicalBlock`, or a :ref:`DISubprogram`.
-The ``name:`` field is the label identifier. The ``file:`` field is the
-:ref:`DIFile` the label is present in. The ``line:`` field is the source line
+``DILabel`` nodes represent labels within a :ref:`DISubprogram`. The ``scope:``
+field must be one of either a :ref:`DILexicalBlockFile`, a
+:ref:`DILexicalBlock`, or a :ref:`DISubprogram`. The ``name:`` field is the
+label identifier. The ``file:`` field is the :ref:`DIFile` the label is
+present in. The ``line:`` and ``column:`` field are the source line and column
 within the file where the label is declared.
+
+Furthermore, a label can be marked as artificial, i.e., compiler-generated,
+using ``isArtificial:``. Such artificial labels are generated, e.g., by
+the ``CoroSplit`` pass. In addition, the ``CoroSplit`` pass also uses the
+``coroSuspendIdx:`` field to identify the coroutine suspend points.
+
+``scope:``, ``name:``, ``file:`` and ``line:`` are mandatory. The remaining
+fields are optional.
 
 .. code-block:: text
 
-  !2 = !DILabel(scope: !0, name: "foo", file: !1, line: 7)
+  !2 = !DILabel(scope: !0, name: "foo", file: !1, line: 7, column: 4)
+  !3 = !DILabel(scope: !0, name: "__coro_resume_3", file: !1, line: 9, column: 3, isArtificial: true, coroSuspendIdx: 3)
 
 DICommonBlock
 """""""""""""
@@ -1316,6 +1229,38 @@ Examples:
     !2 = !{ i8 0, i8 2, i8 3, i8 6 }
     !3 = !{ i8 -2, i8 0, i8 3, i8 6 }
 
+
+.. _nofpclass-metadata:
+
+'``nofpclass``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+``nofpclass`` metadata may be attached only to ``load``
+instructions. It asserts floating-point value classes which will not
+be loaded. The representation is an i32 constant integer encoding a
+10-bit bitmask, with the same meaning and format as the
+:ref:`nofpclass <nofpclass>` attribute. If the loaded value is one of
+the specified floating-point classes, a poison value is returned. The
+interpretation does not depend on the floating-point environment. A
+zero value would be meaningless and is invalid.
+
+Examples:
+
+.. code-block:: llvm
+
+  %not.nan = load float, ptr %p, align 4, !nofpclass !0
+  %not.inf = load <2 x float>, ptr %p, align 4, !nofpclass !1
+  %only.normal = load double, ptr %p, align 8, !nofpclass !2
+  %always.poison = load double, ptr %p, align 8, !nofpclass !3
+  %not.nan.array = load [2 x <2 x float>], ptr %p, !nofpclass !1
+  %not.nan.struct = load { 2 x float }, ptr %p, align 8, !nofpclass !1
+  ...
+  !0 = !{ i32 3 }
+  !1 = !{ i32 516 }
+  !2 = !{ i32 759 }
+  !3 = !{ i32 1023 }
+
+
 '``absolute_symbol``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -1360,7 +1305,7 @@ For example, in the code below, the call instruction may only target the
 
 ``callback`` metadata may be attached to a function declaration, or definition.
 (Call sites are excluded only due to the lack of a use case.) For ease of
-exposition, we'll refer to the function annotated w/ metadata as a broker
+exposition, we'll refer to the function annotated with metadata as a broker
 function. The metadata describes how the arguments of a call to the broker are
 in turn passed to the callback function specified by the metadata. Thus, the
 ``callback`` metadata provides a partial description of a call site inside the
@@ -1450,12 +1395,12 @@ sections that the user does not want removed after linking.
 '``unpredictable``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``unpredictable`` metadata may be attached to any branch or switch
-instruction. It can be used to express the unpredictability of control
-flow. Similar to the llvm.expect intrinsic, it may be used to alter
-optimizations related to compare and branch instructions. The metadata
-is treated as a boolean value; if it exists, it signals that the branch
-or switch that it is attached to is completely unpredictable.
+``unpredictable`` metadata may be attached to any branch, select, or switch
+instruction. It can be used to express the unpredictability of control flow.
+Similar to the ``llvm.expect`` intrinsic, it may be used to alter optimizations
+related to compare and branch instructions. The metadata is treated as a
+boolean value; if it exists, it signals that the branch, select, or switch that
+it is attached to is completely unpredictable.
 
 .. _md_dereferenceable:
 
@@ -1480,6 +1425,33 @@ dereferenceable or null, otherwise the behavior is undefined.
 The number of bytes known to be dereferenceable is specified by the integer
 value in the metadata node. This is analogous to the ''dereferenceable_or_null''
 attribute on parameters and return values.
+
+'``captures``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``!captures`` metadata can only be applied to ``store`` instructions with
+a pointer-typed value operand. It restricts the capturing behavior of the store
+value operand in the same way the ``captures(...)`` attribute would do on a
+call. See the :ref:`pointer capture section <pointercapture>` for a detailed
+discussion of capture semantics.
+
+The ``!captures`` metadata accepts a non-empty list of strings from the same
+set as the :ref:`captures attribute <captures_attr>`:
+``!"address"``, ``!"address_is_null"``, ``!"provenance"`` and
+``!"read_provenance"``. ``!"none"`` is not supported.
+
+For example ``store ptr %x, ptr %y, !captures !{!"address"}`` indicates that
+the copy of pointer ``%x`` stored to location ``%y`` will only be used to
+inspect its integral address value, and not dereferenced. Dereferencing the
+pointer would result in undefined behavior.
+
+Similarly ``store ptr %x, ptr %y, !captures !{!"address", !"read_provenance"}``
+indicates that while reads through the stored pointer are allowed, writes would
+result in undefined behavior.
+
+The ``!captures`` attribute makes no statement about other uses of ``%x``, or
+uses of the stored-to memory location after it has been overwritten with a
+different value.
 
 .. _llvm.loop:
 
@@ -1529,7 +1501,7 @@ loop is transformed to a different loop before an explicitly requested
 other transformations impossible. Mandatory loop canonicalizations such
 as loop rotation are still applied.
 
-It is recommended to use this metadata in addition to any llvm.loop.*
+It is recommended to use this metadata in addition to any ``llvm.loop.*``
 transformation directive. Also, any loop should have at most one
 directive applied to it (and a sequence of transformations built using
 followup-attributes). Otherwise, which transformation will be applied
@@ -1855,7 +1827,7 @@ identification metadata.
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This metadata defines which attributes extracted loops with no cyclic
-dependencies will have (i.e. can be vectorized). See
+dependencies will have (i.e., can be vectorized). See
 :ref:`Transformation Metadata <transformation-metadata>` for details.
 
 '``llvm.loop.distribute.followup_sequential``' Metadata
@@ -1875,9 +1847,79 @@ the non-distributed fallback version will have. See
 '``llvm.loop.distribute.followup_all``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The attributes in this metadata is added to all followup loops of the
+The attributes in this metadata are added to all followup loops of the
 loop distribution pass. See
 :ref:`Transformation Metadata <transformation-metadata>` for details.
+
+'``llvm.loop.isdistributed``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If a loop was successfully processed by the loop distribution pass,
+this metadata is added (i.e., has been distributed).  See
+:ref:`Transformation Metadata <transformation-metadata>` for details.
+
+'``llvm.loop.estimated_trip_count``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This metadata records an estimated trip count for the loop.  The first operand
+is the string ``llvm.loop.estimated_trip_count``.  The second operand is an
+integer constant of type ``i32`` or smaller specifying the estimate.  For
+example:
+
+.. code-block:: llvm
+
+   !0 = !{!"llvm.loop.estimated_trip_count", i32 8}
+
+Purpose
+"""""""
+
+A loop's estimated trip count is an estimate of the average number of loop
+iterations (specifically, the number of times the loop's header executes) each
+time execution reaches the loop.  It is usually only an estimate based on, for
+example, profile data.  The actual number of iterations might vary widely.
+
+The estimated trip count serves as a parameter for various loop transformations
+and typically helps estimate transformation cost.  For example, it can help
+determine how many iterations to peel or how aggressively to unroll.
+
+Initialization and Maintenance
+""""""""""""""""""""""""""""""
+
+Passes should interact with estimated trip counts always via
+``llvm::getLoopEstimatedTripCount`` and ``llvm::setLoopEstimatedTripCount``.
+
+When the ``llvm.loop.estimated_trip_count`` metadata is not present on a loop,
+``llvm::getLoopEstimatedTripCount`` estimates the loop's trip count from the
+loop's ``branch_weights`` metadata under the assumption that the latter still
+accurately encodes the program's original profile data.  However, as passes
+transform existing loops and create new loops, they must be free to update and
+create ``branch_weights`` metadata in a way that maintains accurate block
+frequencies.  Trip counts estimated from this new ``branch_weights`` metadata
+are not necessarily useful to the passes that consume estimated trip counts.
+
+For this reason, when a pass transforms or creates loops, the pass should
+separately estimate new trip counts based on the estimated trip counts that
+``llvm::getLoopEstimatedTripCount`` returns at the start of the pass, and the
+pass should record the new estimates by calling
+``llvm::setLoopEstimatedTripCount``, which creates or updates
+``llvm.loop.estimated_trip_count`` metadata.  Once this metadata is present on a
+loop, ``llvm::getLoopEstimatedTripCount`` returns its value instead of
+estimating the trip count from the loop's ``branch_weights`` metadata.
+
+Zero
+""""
+
+Some passes set ``llvm.loop.estimated_trip_count`` to 0.  For example, after
+peeling 10 or more iterations from a loop with an estimated trip count of 10,
+``llvm.loop.estimated_trip_count`` becomes 0 on the remaining loop.  It
+indicates that, each time execution reaches the peeled iterations, execution is
+estimated to exit them without reaching the remaining loop's header.
+
+Even if the probability of reaching a loop's header is low, if it is reached, it
+is the start of an iteration.  Consequently, some passes historically assume
+that ``llvm::getLoopEstimatedTripCount`` always returns a positive count or
+``std::nullopt``.  Thus, it returns ``std::nullopt`` when
+``llvm.loop.estimated_trip_count`` is 0.
 
 '``llvm.licm.disable``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1890,7 +1932,7 @@ performed on this loop. The metadata has a single operand which is the string
 
    !0 = !{!"llvm.licm.disable"}
 
-Note that although it operates per loop it isn't given the llvm.loop prefix
+Note that although it operates per loop it isn't given the ``llvm.loop`` prefix
 as it is not affected by the ``llvm.loop.disable_nonforced`` metadata.
 
 '``llvm.access.group``' Metadata
@@ -1954,8 +1996,8 @@ undefined.
 Note that if not all memory access instructions belong to an access
 group referred to by ``llvm.loop.parallel_accesses``, then the loop must
 not be considered trivially parallel. Additional
-memory dependence analysis is required to make that determination. As a fail
-safe mechanism, this causes loops that were originally parallel to be considered
+memory dependence analysis is required to make that determination. As a
+fail-safe mechanism, this causes loops that were originally parallel to be considered
 sequential (if optimization passes that are unaware of the parallel semantics
 insert new memory instructions into the loop body).
 
@@ -2087,8 +2129,8 @@ Examples:
 
    !0 = !{}
 
-The invariant.group metadata must be dropped when replacing one pointer by
-another based on aliasing information. This is because invariant.group is tied
+The ``invariant.group`` metadata must be dropped when replacing one pointer by
+another based on aliasing information. This is because ``invariant.group`` is tied
 to the SSA value of the pointer operand.
 
 .. code-block:: llvm
@@ -2105,6 +2147,11 @@ change in the future.
 
 See :doc:`../TypeMetadata`.
 
+'``callee_type``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+See :doc:`../CalleeTypeMetadata`.
+
 '``associated``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -2119,7 +2166,7 @@ compatibility, globals carrying this metadata should:
 - Be in ``@llvm.compiler.used``.
 - If the referenced global variable is in a comdat, be in the same comdat.
 
-``!associated`` can not express many-to-one relationship. A global variable with
+``!associated`` can not express a many-to-one relationship. A global variable with
 the metadata should generally not be referenced by a function: the function may
 be inlined into other functions, leading to more references to the metadata.
 Ideally we would want to keep metadata alive as long as any inline location is
@@ -2180,12 +2227,12 @@ VP
 
 VP (value profile) metadata can be attached to instructions that have
 value profile information. Currently this is indirect calls (where it
-records the hottest callees) and calls to memory intrinsics such as memcpy,
+records the hottest callees) and calls to memory intrinsics, such as memcpy,
 memmove, and memset (where it records the hottest byte lengths).
 
-Each VP metadata node contains "VP" string, then a uint32_t value for the value
-profiling kind, a uint64_t value for the total number of times the instruction
-is executed, followed by uint64_t value and execution count pairs.
+Each VP metadata node contains "VP" string, then a ``uint32_t`` value for the value
+profiling kind, a ``uint64_t`` value for the total number of times the instruction
+is executed, followed by ``uint64_t`` value and execution count pairs.
 The value profiling kind is 0 for indirect call targets and 1 for memory
 operations. For indirect call targets, each profile value is a hash
 of the callee function name, and for memory operations each value is the
@@ -2315,8 +2362,8 @@ that was typically cold and one allocating memory that was typically not cold.
 The format of the metadata describing a context specific profile (e.g.
 ``!1`` and ``!3`` above) requires a first operand that is a metadata node
 describing the context, followed by a list of string metadata tags describing
-the profile behavior (e.g. ``cold`` and ``notcold``) above. The metadata nodes
-describing the context (e.g. ``!2`` and ``!4`` above) are unique ids
+the profile behavior (e.g., ``cold`` and ``notcold``) above. The metadata nodes
+describing the context (e.g., ``!2`` and ``!4`` above) are unique ids
 corresponding to callsites, which can be matched to associated IR calls via
 :ref:`callsite metadata<md_callsite>`. In practice these ids are formed via
 a hash of the callsite's debug info, and the associated call may be in a
@@ -2384,7 +2431,128 @@ Example:
 
 This is intended for use on targets with a notion of generic address
 spaces, which at runtime resolve to different physical memory
-spaces. The interpretation of the address space values is target
-specific. The behavior is undefined if the runtime memory address does
+spaces. The interpretation of the address space values is target specific.
+The behavior is undefined if the runtime memory address does
 resolve to an object defined in one of the indicated address spaces.
+
+'``mmra``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``mmra`` metadata represents target-defined properties on instructions that
+can be used to selectively relax constraints placed by the memory model.
+
+Refer to :doc:`../MemoryModelRelaxationAnnotations` for more information on how this metadata
+affects the memory model of a given target.
+
+It is attached to memory instructions such as:
+:ref:`atomicrmw <i_atomicrmw>`, :ref:`cmpxchg <i_cmpxchg>`, :ref:`load <i_load>`,
+:ref:`store <i_store>`, :ref:`fence <i_fence>` and
+:ref:`call <i_call>` instructions that read or write memory.
+
+The metadata is structured as pairs of strings: a prefix, and suffix that form a MMRA "tag".
+The ``!mmra`` operand can either point to a pair of metadata strings, or a tuple containing
+multiple pairs of metadata strings.
+
+Example:
+
+.. code-block:: llvm
+
+    ; Simple pair of strings used directly:
+    %rmw.valid = atomicrmw and ptr %ptr, i64 %value seq_cst, !mmra !0
+
+    ; Using multiple pairs of strings using a metadata tuple:
+    %rmw.valid = atomicrmw and ptr %ptr, i64 %value seq_cst, !mmra !2
+
+    !0 = !{!"amdgpu-synchronize-as", !"global"}
+    !1 = !{!"amdgpu-synchronize-as", !"private"}
+    !2 = !{!0, !1}
+
+'``nofree``' Metadata
+^^^^^^^^^^^^^^^^^^^^^
+
+The ``nofree`` metadata indicates the memory pointed by the pointer will not be
+freed after the attached instruction.
+
+'``alloc_token``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``alloc_token`` metadata may be attached to calls to memory allocation
+functions, and contains richer semantic information about the type of the
+allocation. This information is consumed by the ``alloc-token`` pass to
+instrument such calls with allocation token IDs.
+
+The metadata contains: string with the type of an allocation, and a boolean
+denoting if the type contains a pointer.
+
+.. code-block:: none
+
+  call ptr @malloc(i64 64), !alloc_token !0
+
+  !0 = !{!"<type-name>", i1 <contains-pointer>}
+
+'``stack-protector``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``stack-protector`` metadata may be attached to alloca instructions.  An
+alloca instruction with this metadata and value `i32 0` will be skipped when
+deciding whether a given function requires a stack protector.  The function
+may still use a stack protector, if other criteria determine it needs one.
+
+The metadata contains an integer, where a 0 value opts the given alloca out
+of requiring a stack protector.
+
+.. code-block:: none
+
+   %a = alloca [1000 x i8], align 1, !stack-protector !0
+
+  !0 = !{i32 0}
+
+'``implicit.ref``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``implicit.ref`` metadata may be attached to a function or global variable
+definition with a single argument that references a global object.
+This is typically used when there is some implicit dependence between the
+symbols that is otherwise opaque to the linker. One such example is metadata
+which is accessed by a runtime with associated ``__start_<section_name>`` and
+``__stop_<section_name>`` symbols.
+
+It does not have any effect on non-XCOFF targets.
+
+This metadata lowers to the .ref assembly directive which will add a relocation
+representing an implicit reference from the section the global belongs to, to
+the associated symbol. This link will keep the referenced symbol alive if the
+section is not garbage collected. More than one ref node can be attached
+to the same function or global variable.
+
+
+Example:
+
+.. code-block:: text
+
+    @a = global i32 1
+    @b = global i32 2
+    @c = global i32 3, section "abc", !implicit.ref !0, !implicit.ref !1
+    !0 = !{ptr @a}
+    !1 = !{ptr @b}
+
+'``inline_history``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The ``inline_history`` metadata may be attached to a call instruction. It
+indicates that the call instruction has been inlined from the referenced
+functions. The call itself should not be inlined if it is a call to any of the
+referenced functions since that could result in infinite inlining as we
+continually inline through mutually recursive functions.
+
+This is intended to be added by and used by inliner passes.
+
+The metadata operands must all be function pointers or ``null``. ``null`` can
+appear when the referenced function is erased from the module, e.g. an internal
+function that has had all calls to it inlined.
+
+.. code-block:: text
+
+    call void @foo(), !inline_history !0
+
+    !0 = !{ptr @bar, null, ptr @baz}
 

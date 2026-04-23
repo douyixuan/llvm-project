@@ -116,7 +116,7 @@ the '``unwind``' keyword, the behavior is undefined.
 
 If multiple keywords appear, the '``sideeffect``' keyword must come
 first, the '``alignstack``' keyword second, the '``inteldialect``' keyword
-third and the '``unwind``' keyword last.
+third, and the '``unwind``' keyword last.
 
 Inline Asm Constraint String
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -150,7 +150,7 @@ There are also three different categories of constraint codes:
 Output constraints
 """"""""""""""""""
 
-Output constraints are specified by an "``=``" prefix (e.g. "``=r``"). This
+Output constraints are specified by an "``=``" prefix (e.g., "``=r``"). This
 indicates that the assembly will write to this operand, and the operand will
 then be made available as a return value of the ``asm`` expression. Output
 constraints do not consume an argument from the call instruction. (Except, see
@@ -158,10 +158,10 @@ below about indirect outputs).
 
 Normally, it is expected that no output locations are written to by the assembly
 expression until *all* of the inputs have been read. As such, LLVM may assign
-the same register to an output and an input. If this is not safe (e.g. if the
+the same register to an output and an input. If this is not safe (e.g., if the
 assembly contains two instructions, where the first writes to one output, and
 the second reads an input and writes to a second output), then the "``&``"
-modifier must be used (e.g. "``=&r``") to specify that the output is an
+modifier must be used (e.g., "``=&r``") to specify that the output is an
 "early-clobber" output. Marking an output as "early-clobber" ensures that LLVM
 will not use the same register for any inputs (other than an input tied to this
 output).
@@ -201,17 +201,17 @@ However, this feature is often not as useful as you might think.
 
 Firstly, the registers are *not* guaranteed to be consecutive. So, on those
 architectures that have instructions which operate on multiple consecutive
-instructions, this is not an appropriate way to support them. (e.g. the 32-bit
+instructions, this is not an appropriate way to support them. (e.g., the 32-bit
 SparcV8 has a 64-bit load, which instruction takes a single 32-bit register. The
 hardware then loads into both the named register, and the next register. This
 feature of inline asm would not be useful to support that.)
 
 A few of the targets provide a template string modifier allowing explicit access
-to the second register of a two-register operand (e.g. MIPS ``L``, ``M``, and
+to the second register of a two-register operand (e.g., MIPS ``L``, ``M``, and
 ``D``). On such an architecture, you can actually access the second allocated
 register (yet, still, not any subsequent ones). But, in that case, you're still
 probably better off simply splitting the value into two separate operands, for
-clarity. (e.g. see the description of the ``A`` constraint on X86, which,
+clarity. (e.g., see the description of the ``A`` constraint on X86, which,
 despite existing only for use with this feature, is not really a good idea to
 use)
 
@@ -227,11 +227,11 @@ rather than producing a return value. An indirect output constraint is an
 "output" only in that the asm is expected to write to the contents of the input
 memory location, instead of just read from it).
 
-This is most typically used for memory constraint, e.g. "``=*m``", to pass the
+This is most typically used for memory constraint, e.g., "``=*m``", to pass the
 address of a variable as a value.
 
 It is also possible to use an indirect *register* constraint, but only on output
-(e.g. "``=*r``"). This will cause LLVM to allocate a register for an output
+(e.g., "``=*r``"). This will cause LLVM to allocate a register for an output
 value normally, and then, separately emit a store to the address provided as
 input, after the provided inline asm. (It's not clear what value this
 functionality provides, compared to writing the store explicitly after the asm
@@ -248,7 +248,7 @@ Clobber constraints
 A clobber constraint is indicated by a "``~``" prefix. A clobber does not
 consume an input operand, nor generate an output. Clobbers cannot use any of the
 general constraint code letters -- they may use only explicit register
-constraints, e.g. "``~{eax}``". The one exception is that a clobber string of
+constraints, e.g., "``~{eax}``". The one exception is that a clobber string of
 "``~{memory}``" indicates that the assembly writes to arbitrary undeclared
 memory locations -- not only the memory pointed to by a declared indirect
 output.
@@ -272,14 +272,14 @@ Constraint Codes
 """"""""""""""""
 After a potential prefix comes constraint code, or codes.
 
-A Constraint Code is either a single letter (e.g. "``r``"), a "``^``" character
-followed by two letters (e.g. "``^wc``"), or "``{``" register-name "``}``"
-(e.g. "``{eax}``").
+A Constraint Code is either a single letter (e.g., "``r``"), a "``^``" character
+followed by two letters (e.g., "``^wc``"), or "``{``" register-name "``}``"
+(e.g., "``{eax}``").
 
 The one and two letter constraint codes are typically chosen to be the same as
 GCC's constraint codes.
 
-A single constraint may include one or more than constraint code in it, leaving
+A single constraint may include one or more constraint codes in it, leaving
 it up to LLVM to choose which one to use. This is included mainly for
 compatibility with the translation of GCC inline asm coming from clang.
 
@@ -347,9 +347,9 @@ AArch64:
 
 - ``z``: An immediate integer 0. Outputs ``WZR`` or ``XZR``, as appropriate.
 - ``I``: An immediate integer valid for an ``ADD`` or ``SUB`` instruction,
-  i.e. 0 to 4095 with optional shift by 12.
+  i.e., 0 to 4095 with optional shift by 12.
 - ``J``: An immediate integer that, when negated, is valid for an ``ADD`` or
-  ``SUB`` instruction, i.e. -1 to -4095 with optional left shift by 12.
+  ``SUB`` instruction, i.e., -1 to -4095 with optional left shift by 12.
 - ``K``: An immediate integer that is valid for the 'bitmask immediate 32' of a
   logical instruction like ``AND``, ``EOR``, or ``ORR`` with a 32-bit register.
 - ``L``: An immediate integer that is valid for the 'bitmask immediate 64' of a
@@ -378,9 +378,13 @@ AArch64:
 AMDGPU:
 
 - ``r``: A 32 or 64-bit integer register.
-- ``[0-9]v``: The 32-bit VGPR register, number 0-9.
-- ``[0-9]s``: The 32-bit SGPR register, number 0-9.
-- ``[0-9]a``: The 32-bit AGPR register, number 0-9.
+- ``s``: SGPR register or tuple
+- ``v``: VGPR register or tuple
+- ``a``: AGPR register or tuple. Only valid on gfx908+.
+- ``VA``: VGPR or AGPR register or tuple. Only valid on gfx90a+.
+- ``v[0-9]``: The 32-bit VGPR register, number 0-9.
+- ``s[0-9]``: The 32-bit SGPR register, number 0-9.
+- ``a[0-9]``: The 32-bit AGPR register, number 0-9.
 - ``I``: An integer inline constant in the range from -16 to 64.
 - ``J``: A 16-bit signed integer constant.
 - ``A``: An integer or a floating-point inline constant.
@@ -457,6 +461,8 @@ LoongArch:
 - ``m``: A memory operand whose address is formed by a base register and
   offset that is suitable for use in instructions with the same addressing
   mode as st.w and ld.w.
+- ``q``: A general-purpose register except for $r0 and $r1 (for the csrxchg
+  instruction).
 - ``I``: A signed 12-bit constant (for arithmetic instructions).
 - ``J``: An immediate integer zero.
 - ``K``: An unsigned 12-bit constant (for logic instructions).
@@ -576,7 +582,7 @@ SystemZ:
   address context evaluates as zero).
 - ``h``: A 32-bit value in the high part of a 64bit data register
   (LLVM-specific)
-- ``f``: A 32, 64, or 128-bit floating-point register.
+- ``f``: A 16, 32, 64, or 128-bit floating-point register.
 
 X86:
 
@@ -643,12 +649,13 @@ and GCC likely indicates a bug in LLVM.
 
 Target-independent:
 
+- ``a``: Print a memory reference. Targets might customize the output.
 - ``c``: Print an immediate integer constant unadorned, without
-  the target-specific immediate punctuation (e.g. no ``$`` prefix).
+  the target-specific immediate punctuation (e.g., no ``$`` prefix).
 - ``n``: Negate and print immediate integer constant unadorned, without the
-  target-specific immediate punctuation (e.g. no ``$`` prefix).
+  target-specific immediate punctuation (e.g., no ``$`` prefix).
 - ``l``: Print as an unadorned label, without the target-specific label
-  punctuation (e.g. no ``$`` prefix).
+  punctuation (e.g., no ``$`` prefix).
 
 AArch64:
 
@@ -669,7 +676,7 @@ ARM:
   register).
 - ``P``: No effect.
 - ``q``: No effect.
-- ``y``: Print a VFP single-precision register as an indexed double (e.g. print
+- ``y``: Print a VFP single-precision register as an indexed double (e.g., print
   as ``d4[1]`` instead of ``s9``)
 - ``B``: Bitwise invert and print an immediate integer constant without ``#``
   prefix.
@@ -780,21 +787,23 @@ target-independent modifiers.
 
 X86:
 
+- ``a``: Print a memory reference. This displays as ``sym(%rip)`` for x86-64.
+  i386 should only use this with the static relocation model.
 - ``c``: Print an unadorned integer or symbol name. (The latter is
   target-specific behavior for this typically target-independent modifier).
 - ``A``: Print a register name with a '``*``' before it.
-- ``b``: Print an 8-bit register name (e.g. ``al``); do nothing on a memory
+- ``b``: Print an 8-bit register name (e.g., ``al``); do nothing on a memory
   operand.
-- ``h``: Print the upper 8-bit register name (e.g. ``ah``); do nothing on a
+- ``h``: Print the upper 8-bit register name (e.g., ``ah``); do nothing on a
   memory operand.
-- ``w``: Print the 16-bit register name (e.g. ``ax``); do nothing on a memory
+- ``w``: Print the 16-bit register name (e.g., ``ax``); do nothing on a memory
   operand.
-- ``k``: Print the 32-bit register name (e.g. ``eax``); do nothing on a memory
+- ``k``: Print the 32-bit register name (e.g., ``eax``); do nothing on a memory
   operand.
-- ``q``: Print the 64-bit register name (e.g. ``rax``), if 64-bit registers are
+- ``q``: Print the 64-bit register name (e.g., ``rax``), if 64-bit registers are
   available, otherwise the 32-bit register name; do nothing on a memory operand.
 - ``n``: Negate and print an unadorned integer, or, for operands other than an
-  immediate integer (e.g. a relocatable symbol expression), print a '-' before
+  immediate integer (e.g., a relocatable symbol expression), print a '-' before
   the operand. (The behavior for relocatable symbol expressions is a
   target-specific behavior for this typically target-independent modifier)
 - ``H``: Print a memory reference with additional offset +8.
@@ -815,7 +824,7 @@ Inline Asm Metadata
 The call instructions that wrap inline asm nodes may have a
 "``!srcloc``" MDNode attached to it that contains a list of constant
 integers. If present, the code generator will use the integer as the
-location cookie value when report errors through the ``LLVMContext``
+location cookie value when reporting errors through the ``LLVMContext``
 error reporting mechanisms. This allows a front-end to correlate backend
 errors that occur with inline asm back to the source code that produced
 it. For example:

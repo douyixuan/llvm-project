@@ -9,6 +9,7 @@ LangRef: Type System
 
 .. _typesystem:
 
+
 Type System
 ===========
 
@@ -74,6 +75,30 @@ except :ref:`label <t_label>` and :ref:`metadata <t_metadata>`.
 | ``{i32, i32} (i32)``            | A function taking an ``i32``, returning a :ref:`structure <t_struct>` containing two ``i32`` values                                                                 |
 +---------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 
+.. _t_opaque:
+
+Opaque Structure Types
+----------------------
+
+:Overview:
+
+Opaque structure types are used to represent structure types that
+do not have a body specified. This corresponds (for example) to the C
+notion of a forward declared structure. They can be named (``%X``) or
+unnamed (``%52``).
+
+It is not possible to create SSA values with an opaque structure type. In
+practice, this largely limits their use to the value type of external globals.
+
+:Syntax:
+
+::
+
+      %X = type opaque
+      %52 = type opaque
+
+      @g = external global %X
+
 .. _t_firstclass:
 
 First Class Types
@@ -121,6 +146,53 @@ Examples:
 | ``i1942652``   | a really big integer of over 1 million bits.   |
 +----------------+------------------------------------------------+
 
+.. _t_byte:
+
+Byte Type
+"""""""""
+
+:Overview:
+
+The byte type represents raw memory data in SSA registers. It should be used
+when it cannot be determined whether a value holds a pointer or another type at
+run time, or if the value contains uninitialized or poison data. Frontends are
+expected to use a byte type when:
+
+#. Lowering memory operations like `memcpy` and `memmove` to load/store pairs
+   without knowing the underlying type being copied.
+
+#. Working with union types that can hold a pointer alongside a non-pointer
+   type.
+
+#. Working with possibly uninitialized data.
+
+Otherwise, when known, the specific type should be used. Each bit can be:
+
+* An integer bit (0 or 1)
+* Part of a pointer value
+* ``poison``
+
+Any bit width from 1 bit to 2\ :sup:`23`\ (about 8 million) can be specified.
+
+:Syntax:
+
+::
+
+      bN
+
+The number of bits the byte occupies is specified by the ``N`` value.
+
+Examples:
+*********
+
++----------------+------------------------------------------------+
+| ``b1``         | a single-bit byte value.                       |
++----------------+------------------------------------------------+
+| ``b32``        | a 32-bit byte value.                           |
++----------------+------------------------------------------------+
+| ``b128``       | a 128-bit byte value.                          |
++----------------+------------------------------------------------+
+
 .. _t_floating:
 
 Floating-Point Types
@@ -133,7 +205,7 @@ Floating-Point Types
      - Description
 
    * - ``half``
-     - 16-bit floating-point value (IEEE-754 binary16)
+     - 16-bit floating-point value (IEEE 754 binary16)
 
    * - ``bfloat``
      - 16-bit "brain" floating-point value (7-bit significand).  Provides the
@@ -142,13 +214,13 @@ Floating-Point Types
        extensions and Arm's ARMv8.6-A extensions, among others.
 
    * - ``float``
-     - 32-bit floating-point value (IEEE-754 binary32)
+     - 32-bit floating-point value (IEEE 754 binary32)
 
    * - ``double``
-     - 64-bit floating-point value (IEEE-754 binary64)
+     - 64-bit floating-point value (IEEE 754 binary64)
 
    * - ``fp128``
-     - 128-bit floating-point value (IEEE-754 binary128)
+     - 128-bit floating-point value (IEEE 754 binary128)
 
    * - ``x86_fp80``
      -  80-bit floating-point value (X87)
@@ -162,7 +234,7 @@ X86_amx Type
 :Overview:
 
 The x86_amx type represents a value held in an AMX tile register on an x86
-machine. The operations allowed on it are quite limited. Only few intrinsics
+machine. The operations allowed on it are quite limited. Only a few intrinsics
 are allowed: stride load and store, zero and dot product. No instruction is
 allowed for this type. There are no arguments, arrays, pointers, vectors
 or constants of this type.
@@ -194,13 +266,26 @@ address spaces defined in the :ref:`datalayout string<langref_datalayout>`.
 the default globals address space and ``addrspace("P")`` the program address
 space.
 
+The representation of pointers can be different for each address space and does
+not necessarily need to be a plain integer address (e.g., for
+:ref:`non-integral pointers <nointptrtype>`). In addition to a representation
+bits size, pointers in each address space also have an index size which defines
+the bitwidth of indexing operations as well as the size of `integer addresses`
+in this address space. For example, CHERI capabilities are twice the size of the
+underlying addresses to accommodate for additional metadata such as bounds and
+permissions: on a 32-bit system the bitwidth of the pointer representation size
+is 64, but the underlying address width remains 32 bits.
+
 The default address space is number zero.
 
 The semantics of non-zero address spaces are target-specific. Memory
 access through a non-dereferenceable pointer is undefined behavior in
 any address space. Pointers with the bit-value 0 are only assumed to
 be non-dereferenceable in address space 0, unless the function is
-marked with the ``null_pointer_is_valid`` attribute.
+marked with the ``null_pointer_is_valid`` attribute. However, *volatile*
+access to any non-dereferenceable address may have defined behavior
+(according to the target), and in this case the attribute is not needed
+even for address 0.
 
 If an object can be proven accessible through a pointer with a
 different address space, the access may be modified to use that
@@ -338,12 +423,13 @@ the type size is smaller than the type's store size.
       < vscale x <# elements> x <elementtype> > ; Scalable vector
 
 The number of elements is a constant integer value larger than 0;
-elementtype may be any integer, floating-point or pointer type. Vectors
+elementtype may be any integer, floating-point, pointer type, or a sized
+target extension type that has the ``CanBeVectorElement`` property. Vectors
 of size zero are not allowed. For scalable vectors, the total number of
 elements is a constant multiple (called vscale) of the specified number
-of elements; vscale is a positive integer that is unknown at compile time
-and the same hardware-dependent constant for all scalable vectors at run
-time. The size of a specific scalable vector type is thus constant within
+of elements; vscale is a positive power-of-two integer that is unknown at
+compile time and the same hardware-dependent constant for all scalable vectors
+at run time. The size of a specific scalable vector type is thus constant within
 IR, even if the exact size in bytes cannot be determined until run time.
 
 :Examples:
@@ -491,7 +577,7 @@ is inserted as defined by the DataLayout string in the module, which is
 required to match what the underlying code generator expects.
 
 Structures can either be "literal" or "identified". A literal structure
-is defined inline with other types (e.g. ``[2 x {i32, i32}]``) whereas
+is defined inline with other types (e.g., ``[2 x {i32, i32}]``) whereas
 identified types are always defined at the top level with a name.
 Literal types are uniqued by their contents and can never be recursive
 or opaque since there is no way to write one. Identified types can be
@@ -513,29 +599,4 @@ opaqued and are never uniqued. Identified types must not be recursive.
 +------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 | ``<{ i8, i32 }>``            | A packed struct known to be 5 bytes in size.                                                                                                                                          |
 +------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-
-.. _t_opaque:
-
-Opaque Structure Types
-""""""""""""""""""""""
-
-:Overview:
-
-Opaque structure types are used to represent structure types that
-do not have a body specified. This corresponds (for example) to the C
-notion of a forward declared structure. They can be named (``%X``) or
-unnamed (``%52``).
-
-:Syntax:
-
-::
-
-      %X = type opaque
-      %52 = type opaque
-
-:Examples:
-
-+--------------+-------------------+
-| ``opaque``   | An opaque type.   |
-+--------------+-------------------+
 

@@ -17,7 +17,6 @@ representing 'all' high-level languages cleanly. It is the common code
 representation used throughout all phases of the LLVM compilation
 strategy.
 
-
 Introduction
 ============
 
@@ -28,7 +27,7 @@ readable assembly language representation. This allows LLVM to provide a
 powerful intermediate representation for efficient compiler
 transformations and analysis, while providing a natural means to debug
 and visualize the transformations. The three different forms of LLVM are
-all equivalent. This document describes the human readable
+all equivalent. This document describes the human-readable
 representation and notation.
 
 The LLVM representation aims to be light-weight and low-level while
@@ -62,7 +61,6 @@ verify that an LLVM module is well formed. This pass is automatically
 run by the parser after parsing input assembly and by the optimizer
 before it outputs bitcode. The violations pointed out by the verifier
 pass indicate bugs in transformation passes or input to the parser.
-
 
 Syntax
 ======
@@ -125,7 +123,7 @@ And the hard way:
 .. code-block:: llvm
 
     %0 = add i32 %X, %X           ; yields i32:%0
-    %1 = add i32 %0, %0           /* yields i32:%1 */
+    %1 = add i32 %0, %0           ; yields i32:%1
     %result = add i32 %1, %1
 
 This last way of multiplying ``%X`` by 8 illustrates several important
@@ -162,7 +160,7 @@ There are two kinds of escapes.
 * ``\\`` represents a single ``\`` character.
 
 * ``\`` followed by two hexadecimal characters (0-9, a-f, or A-F)
-  represents the byte with the given value (e.g. \x00 represents a
+  represents the byte with the given value (e.g., ``\00`` represents a
   null byte).
 
 To represent a ``"`` character, use ``\22``. (``\"`` will end the string
@@ -171,6 +169,6 @@ with a trailing ``\``.)
 Newlines do not terminate string constants; strings can span multiple
 lines.
 
-The interpretation of string constants (e.g. their character encoding)
+The interpretation of string constants (e.g., their character encoding)
 depends on context.
 

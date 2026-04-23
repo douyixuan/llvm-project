@@ -316,10 +316,11 @@ This instruction requires several arguments:
    from the :ref:`datalayout string<langref_datalayout>` will be used.
 #. '``ty``': the type of the call instruction itself which is also the
    type of the return value. Functions that return no value are marked
-   ``void``.
+   ``void``. The signature is computed based on the return type and argument
+   types.
 #. '``fnty``': shall be the signature of the function being invoked. The
    argument types must match the types implied by this signature. This
-   type can be omitted if the function is not varargs.
+   is only required if the signature specifies a varargs type.
 #. '``fnptrval``': An LLVM value containing a pointer to a function to
    be invoked. In most cases, this is a direct function invocation, but
    indirect ``invoke``'s are just as possible, calling an arbitrary pointer
@@ -385,8 +386,12 @@ The '``callbr``' instruction causes control to transfer to a specified
 function, with the possibility of control flow transfer to either the
 '``fallthrough``' label or one of the '``indirect``' labels.
 
-This instruction should only be used to implement the "goto" feature of gcc
-style inline assembly. Any other usage is an error in the IR verifier.
+This instruction can currently only be used
+
+#. to implement the "goto" feature of gcc style inline assembly or
+#. to call selected intrinsics.
+
+Any other usage is an error in the IR verifier.
 
 Note that in order to support outputs along indirect edges, LLVM may need to
 split critical edges, which may require synthesizing a replacement block for
@@ -395,6 +400,14 @@ the ``indirect labels``. Therefore, the address of a label as seen by another
 may not be equal to the address provided for the same block to this
 instruction's ``indirect labels`` operand. The assembly code may only transfer
 control to addresses provided via this instruction's ``indirect labels``.
+
+On target architectures that implement branch target enforcement by requiring
+indirect (register-controlled) branch instructions to jump only to locations
+marked by a special instruction (such as AArch64 ``bti``), the called code is
+expected not to use such an indirect branch to transfer control to the
+locations in ``indirect labels``. Therefore, including a label in the
+``indirect labels`` of a ``callbr`` does not require the compiler to put a
+``bti`` or equivalent instruction at the label.
 
 Arguments:
 """"""""""
@@ -412,10 +425,11 @@ This instruction requires several arguments:
    from the :ref:`datalayout string<langref_datalayout>` will be used.
 #. '``ty``': the type of the call instruction itself which is also the
    type of the return value. Functions that return no value are marked
-   ``void``.
+   ``void``.  The signature is computed based on the return type and argument
+   types.
 #. '``fnty``': shall be the signature of the function being called. The
    argument types must match the types implied by this signature. This
-   type can be omitted if the function is not varargs.
+   is only required if the signature specifies a varargs type.
 #. '``fnptrval``': An LLVM value containing a pointer to a function to
    be called. In most cases, this is a direct function call, but
    other ``callbr``'s are just as possible, calling an arbitrary pointer
@@ -426,7 +440,7 @@ This instruction requires several arguments:
    indicates the function accepts a variable number of arguments, the
    extra arguments can be specified.
 #. '``fallthrough label``': the label reached when the inline assembly's
-   execution exits the bottom.
+   execution exits the bottom / the intrinsic call returns.
 #. '``indirect labels``': the labels reached when a callee transfers control
    to a location other than the '``fallthrough label``'. Label constraints
    refer to these destinations.
@@ -444,9 +458,12 @@ flow goes after the call.
 The output values of a '``callbr``' instruction are available both in the
 the '``fallthrough``' block, and any '``indirect``' blocks(s).
 
-The only use of this today is to implement the "goto" feature of gcc inline
-assembly where additional labels can be provided as locations for the inline
-assembly to jump to.
+The only current uses of this are:
+
+#. implement the "goto" feature of gcc inline assembly where additional
+   labels can be provided as locations for the inline assembly to jump to.
+#. support selected intrinsics which manipulate control flow and should
+   be chained to specific terminators, such as '``unreachable``'.
 
 Example:
 """"""""
@@ -460,6 +477,14 @@ Example:
       ; "asm goto" with output constraints.
       <result> = callbr i32 asm "", "=r,r,!i"(i32 %x)
                   to label %fallthrough [label %indirect]
+
+      ; intrinsic which should be followed by unreachable (the order of the
+      ; blocks after the callbr instruction doesn't matter)
+        callbr void @llvm.amdgcn.kill(i1 %c) to label %cont [label %kill]
+      cont:
+        ...
+      kill:
+        unreachable
 
 .. _i_resume:
 
@@ -973,7 +998,7 @@ bit width of the result.
 Because LLVM integers use a two's complement representation, and the
 result is the same width as the operands, this instruction returns the
 correct result for both signed and unsigned integers. If a full product
-(e.g. ``i32`` * ``i32`` -> ``i64``) is needed, the operands should be
+(e.g., ``i32`` * ``i32`` -> ``i64``) is needed, the operands should be
 sign-extended or zero-extended as appropriate to the width of the full
 product.
 
@@ -1794,10 +1819,11 @@ shuffle mask selects an element from one of the input vectors to copy
 to the result. Non-negative elements in the mask represent an index
 into the concatenated pair of input vectors.
 
-A ``poison`` element in the mask vector specifies that the resulting element
-is ``poison``.
-For backwards-compatibility reasons, LLVM temporarily also accepts ``undef``
-mask elements, which will be interpreted the same way as ``poison`` elements.
+A ``poison`` element in the mask vector specifies that the resulting element is
+``poison``. For backwards-compatibility reasons, LLVM temporarily also accepts
+``undef`` mask elements. These will be interpreted the same way as ``poison``
+mask elements, also producing a ``poison`` element in the result.
+
 If the shuffle mask selects an ``undef`` element from one of the input
 vectors, the resulting element is ``undef``.
 
@@ -1943,9 +1969,8 @@ Overview:
 
 The '``alloca``' instruction allocates memory on the stack frame of the
 currently executing function, to be automatically released when this
-function returns to its caller.  If the address space is not explicitly
-specified, the object is allocated in the alloca address space from the
-:ref:`datalayout string<langref_datalayout>`.
+function returns to its caller. If the address space is not explicitly
+specified, the default address space 0 is used.
 
 Arguments:
 """"""""""
@@ -1967,7 +1992,7 @@ allocation on any convenient boundary compatible with the type.
 '``type``' may be any sized type.
 
 Structs containing scalable vectors cannot be used in allocas unless all
-fields are the same scalable vector type (e.g. ``{<vscale x 2 x i32>,
+fields are the same scalable vector type (e.g., ``{<vscale x 2 x i32>,
 <vscale x 2 x i32>}`` contains the same type while ``{<vscale x 2 x i32>,
 <vscale x 2 x i64>}`` doesn't).
 
@@ -1987,13 +2012,19 @@ which way the stack grows) is not specified.
 
 Note that '``alloca``' outside of the alloca address space from the
 :ref:`datalayout string<langref_datalayout>` is meaningful only if the
-target has assigned it a semantics.
+target has assigned it a semantics. For targets that specify a non-zero alloca
+address space in the :ref:`datalayout string<langref_datalayout>`, the alloca
+address space needs to be explicitly specified in the instruction if it is to be
+used.
 
 If the returned pointer is used by :ref:`llvm.lifetime.start <int_lifestart>`,
 the returned object is initially dead.
 See :ref:`llvm.lifetime.start <int_lifestart>` and
 :ref:`llvm.lifetime.end <int_lifeend>` for the precise semantics of
 lifetime-manipulating intrinsics.
+
+If the element count is ``undef`` or ``poison``, this instruction has undefined
+behavior.
 
 Example:
 """"""""
@@ -2032,7 +2063,7 @@ Arguments:
 
 The argument to the ``load`` instruction specifies the memory address from which
 to load. The type specified must be a :ref:`first class <t_firstclass>` type of
-known size (i.e. not containing an :ref:`opaque structural type <t_opaque>`). If
+known size (i.e., not containing an :ref:`opaque structural type <t_opaque>`). If
 the ``load`` is marked as ``volatile``, then the optimizer is not allowed to
 modify the number or order of execution of this ``load`` with other
 :ref:`volatile operations <volatile>`.
@@ -2041,9 +2072,9 @@ If the ``load`` is marked as ``atomic``, it takes an extra :ref:`ordering
 <ordering>` and optional ``syncscope("<target-scope>")`` argument. The
 ``release`` and ``acq_rel`` orderings are not valid on ``load`` instructions.
 Atomic loads produce :ref:`defined <memmodel>` results when they may see
-multiple atomic stores. The type of the pointee must be an integer, pointer, or
-floating-point type whose bit width is a power of two greater than or equal to
-eight and less than or equal to a target-specific size limit.  ``align`` must be
+multiple atomic stores. The type of the pointee must be an integer, pointer,
+floating-point, or vector type whose bit width is a power of two greater than
+or equal to eight. ``align`` must be
 explicitly specified on atomic loads. Note: if the alignment is not greater or
 equal to the size of the `<value>` type, the atomic operation is likely to
 require a lock and have poor performance. ``!nontemporal`` does not have any
@@ -2055,11 +2086,9 @@ responsibility of the code emitter to ensure that the alignment information is
 correct. Overestimating the alignment results in undefined behavior.
 Underestimating the alignment may produce less efficient code. An alignment of
 1 is always safe. The maximum possible alignment is ``1 << 32``. An alignment
-value higher than the size of the loaded type implies memory up to the
-alignment value bytes can be safely loaded without trapping in the default
-address space. Access of the high bytes can interfere with debugging tools, so
-should not be accessed if the function has the ``sanitize_thread`` or
-``sanitize_address`` attributes.
+value higher than the size of the loaded type does *not* imply (without target
+specific knowledge) that memory up to the alignment value bytes can be safely
+loaded without trapping.
 
 The alignment is only optional when parsing textual IR; for in-memory IR, it is
 always present. An omitted ``align`` argument means that the operation has the
@@ -2130,12 +2159,17 @@ is of scalar type then the number of bytes read does not exceed the
 minimum number of bytes needed to hold all bits of the type. For
 example, loading an ``i24`` reads at most three bytes. When loading a
 value of a type like ``i20`` with a size that is not an integral number
-of bytes, the result is undefined if the value was not originally
-written using a store of the same type.
+of bytes, the load will be performed on the next larger multiple of the byte
+size (here ``i24``) and truncated. If any of the truncated bits are non-zero,
+the result is a poison value. As such, a non-byte-sized load behaves like a
+byte-sized load followed by a ``trunc nuw`` operation.
+
 If the value being loaded is of aggregate type, the bytes that correspond to
 padding may be accessed but are ignored, because it is impossible to observe
 padding from the loaded aggregate value.
 If ``<pointer>`` is not a well-defined value, the behavior is undefined.
+The behavior of loading a value of a type that differs from the type used to
+store it is described in the :ref:`bitcast <i_bitcast>` section.
 
 Examples:
 """""""""
@@ -2175,16 +2209,16 @@ pointer to the :ref:`first class <t_firstclass>` type of the ``<value>``
 operand. If the ``store`` is marked as ``volatile``, then the optimizer is not
 allowed to modify the number or order of execution of this ``store`` with other
 :ref:`volatile operations <volatile>`.  Only values of :ref:`first class
-<t_firstclass>` types of known size (i.e. not containing an :ref:`opaque
+<t_firstclass>` types of known size (i.e., not containing an :ref:`opaque
 structural type <t_opaque>`) can be stored.
 
 If the ``store`` is marked as ``atomic``, it takes an extra :ref:`ordering
 <ordering>` and optional ``syncscope("<target-scope>")`` argument. The
 ``acquire`` and ``acq_rel`` orderings aren't valid on ``store`` instructions.
 Atomic loads produce :ref:`defined <memmodel>` results when they may see
-multiple atomic stores. The type of the pointee must be an integer, pointer, or
-floating-point type whose bit width is a power of two greater than or equal to
-eight and less than or equal to a target-specific size limit.  ``align`` must be
+multiple atomic stores. The type of the pointee must be an integer, pointer,
+floating-point, or vector type whose bit width is a power of two greater than
+or equal to eight. ``align`` must be
 explicitly specified on atomic stores. Note: if the alignment is not greater or
 equal to the size of the `<value>` type, the atomic operation is likely to
 require a lock and have poor performance. ``!nontemporal`` does not have any
@@ -2195,12 +2229,10 @@ operation (that is, the alignment of the memory address). It is the
 responsibility of the code emitter to ensure that the alignment information is
 correct. Overestimating the alignment results in undefined behavior.
 Underestimating the alignment may produce less efficient code. An alignment of
-1 is always safe. The maximum possible alignment is ``1 << 32``. An alignment
-value higher than the size of the loaded type implies memory up to the
-alignment value bytes can be safely loaded without trapping in the default
-address space. Access of the high bytes can interfere with debugging tools, so
-should not be accessed if the function has the ``sanitize_thread`` or
-``sanitize_address`` attributes.
+1 is always safe. The maximum possible alignment is ``1 << 32``.  An alignment
+value higher than the size of the stored type does *not* imply (without target
+specific knowledge) that memory up to the alignment value bytes can be safely
+loaded without trapping.
 
 The alignment is only optional when parsing textual IR; for in-memory IR, it is
 always present. An omitted ``align`` argument means that the operation has the
@@ -2226,8 +2258,10 @@ of scalar type then the number of bytes written does not exceed the
 minimum number of bytes needed to hold all bits of the type. For
 example, storing an ``i24`` writes at most three bytes. When writing a
 value of a type like ``i20`` with a size that is not an integral number
-of bytes, it is unspecified what happens to the extra bits that do not
-belong to the type, but they will typically be overwritten.
+of bytes, the value will be zero extended to the next larger multiple of the
+byte size (here ``i24``) and then stored. As such, a non-byte-sized store
+behaves like a ``zext`` followed by a byte-sized store.
+
 If ``<value>`` is of aggregate type, padding is filled with
 :ref:`undef <undefvalues>`.
 If ``<pointer>`` is not a well-defined value, the behavior is undefined.
@@ -2329,8 +2363,8 @@ There are three arguments to the '``cmpxchg``' instruction: an address
 to operate on, a value to compare to the value currently be at that
 address, and a new value to place at that address if the compared values
 are equal. The type of '<cmp>' must be an integer or pointer type whose
-bit width is a power of two greater than or equal to eight and less
-than or equal to a target-specific size limit. '<cmp>' and '<new>' must
+bit width is a power of two greater than or equal to eight.
+'<cmp>' and '<new>' must
 have the same type, and the type of '<pointer>' must be a pointer to
 that type. If the ``cmpxchg`` is marked as ``volatile``, then the
 optimizer is not allowed to modify the number or order of execution of
@@ -2435,16 +2469,20 @@ operation. The operation must be one of the following keywords:
 -  fsub
 -  fmax
 -  fmin
+-  fmaximum
+-  fminimum
+-  fmaximumnum
+-  fminimumnum
 -  uinc_wrap
 -  udec_wrap
 -  usub_cond
 -  usub_sat
 
 For most of these operations, the type of '<value>' must be an integer
-type whose bit width is a power of two greater than or equal to eight
-and less than or equal to a target-specific size limit. For xchg, this
+type whose bit width is a power of two greater than or equal to eight.
+For xchg, this
 may also be a floating point or a pointer type with the same size constraints
-as integers.  For fadd/fsub/fmax/fmin, this must be a floating-point
+as integers.  For fadd/fsub/fmax/fmin/fmaximum/fminimum/fmaximumnum/fminimumnum, this must be a floating-point
 or fixed vector of floating-point type.  The type of the '``<pointer>``'
 operand must be a pointer to that type. If the ``atomicrmw`` is marked
 as ``volatile``, then the optimizer is not allowed to modify the
@@ -2461,7 +2499,7 @@ size of the '<value>' type. Note that this default alignment assumption is
 different from the alignment used for the load/store instructions when align
 isn't specified.
 
-A ``atomicrmw`` instruction can also take an optional
+An ``atomicrmw`` instruction can also take an optional
 ":ref:`syncscope <syncscope>`" argument.
 
 Semantics:
@@ -2485,8 +2523,12 @@ operation argument:
 -  umin: ``*ptr = *ptr < val ? *ptr : val`` (using an unsigned comparison)
 - fadd: ``*ptr = *ptr + val`` (using floating point arithmetic)
 - fsub: ``*ptr = *ptr - val`` (using floating point arithmetic)
--  fmax: ``*ptr = maxnum(*ptr, val)`` (match the `llvm.maxnum.*`` intrinsic)
--  fmin: ``*ptr = minnum(*ptr, val)`` (match the `llvm.minnum.*`` intrinsic)
+-  fmax: ``*ptr = maxnum(*ptr, val)`` (match the `llvm.maxnum.*` intrinsic)
+-  fmin: ``*ptr = minnum(*ptr, val)`` (match the `llvm.minnum.*` intrinsic)
+-  fmaximum: ``*ptr = maximum(*ptr, val)`` (match the `llvm.maximum.*` intrinsic)
+-  fminimum: ``*ptr = minimum(*ptr, val)`` (match the `llvm.minimum.*` intrinsic)
+-  fmaximumnum: ``*ptr = maximumnum(*ptr, val)`` (match the `llvm.maximumnum.*` intrinsic)
+-  fminimumnum: ``*ptr = minimumnum(*ptr, val)`` (match the `llvm.minimumnum.*` intrinsic)
 -  uinc_wrap: ``*ptr = (*ptr u>= val) ? 0 : (*ptr + 1)`` (increment value with wraparound to zero when incremented above input value)
 -  udec_wrap: ``*ptr = ((*ptr == 0) || (*ptr u> val)) ? val : (*ptr - 1)`` (decrement with wraparound to input value when decremented below zero).
 -  usub_cond: ``*ptr = (*ptr u>= val) ? *ptr - val : *ptr`` (subtract only if no unsigned overflow).
@@ -2669,6 +2711,9 @@ if the ``getelementptr`` has any non-zero indices, the following rules apply:
    :ref:`based <pointeraliasing>` on. This means that it points into that
    allocated object, or to its end. Note that the object does not have to be
    live anymore; being in-bounds of a deallocated object is sufficient.
+   If the allocated object can grow, then the relevant size for being *in
+   bounds* is the maximal size the object could have while satisfying the
+   allocated object rules, not its current size.
  * During the successive addition of offsets to the address, the resulting
    pointer must remain *in bounds* of the allocated object at each step.
 
@@ -2693,7 +2738,7 @@ Note that the ``inrange`` keyword is currently only allowed
 in constant ``getelementptr`` expressions.
 
 The getelementptr instruction is often confusing. For some more insight
-into how it works, see :doc:`the getelementptr FAQ <../GetElementPtr>`.
+into how it works, see :doc:`../the getelementptr FAQ <GetElementPtr>`.
 
 Example:
 """"""""
@@ -2758,8 +2803,8 @@ makes sense:
     ; get pointers for 8 elements from array B
     %ptrs = getelementptr double, ptr %B, <8 x i32> %C
     ; load 8 elements from array B into A
-    %A = call <8 x double> @llvm.masked.gather.v8f64.v8p0f64(<8 x ptr> %ptrs,
-         i32 8, <8 x i1> %mask, <8 x double> %passthru)
+    %A = call <8 x double> @llvm.masked.gather.v8f64.v8p0f64(
+         <8 x ptr> align 8 %ptrs, <8 x i1> %mask, <8 x double> %passthru)
 
 Conversion Operations
 ---------------------
@@ -3153,8 +3198,8 @@ Example:
       %X = uitofp i32 257 to float         ; yields float:257.0
       %Y = uitofp i8 -1 to double          ; yields double:255.0
 
-      %a = uitofp nneg i32 256 to i32      ; yields float:256.0
-      %b = uitofp nneg i32 -256 to i32     ; yields i32 poison
+      %a = uitofp nneg i32 256 to float    ; yields float:256.0
+      %b = uitofp nneg i32 -256 to float   ; yields float poison
 
 '``sitofp .. to``' Instruction
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -3227,12 +3272,15 @@ Semantics:
 """"""""""
 
 The '``ptrtoint``' instruction converts ``value`` to integer type
-``ty2`` by interpreting the pointer value as an integer and either
-truncating or zero extending that value to the size of the integer type.
+``ty2`` by interpreting all the pointer representation bits as an integer
+(equivalent to a ``bitcast``) and either truncating or zero extending that value
+to the size of the integer type.
 If ``value`` is smaller than ``ty2`` then a zero extension is done. If
 ``value`` is larger than ``ty2`` then a truncation is done. If they are
 the same size, then nothing is done (*no-op cast*) other than a type
 change.
+The ``ptrtoint`` always :ref:`captures address and provenance <pointercapture>`
+of the pointer argument.
 
 Example:
 """"""""
@@ -3242,6 +3290,59 @@ Example:
       %X = ptrtoint ptr %P to i8                         ; yields truncation on 32-bit architecture
       %Y = ptrtoint ptr %P to i64                        ; yields zero extension on 32-bit architecture
       %Z = ptrtoint <4 x ptr> %P to <4 x i64>; yields vector zero extension for a vector of addresses on 32-bit architecture
+
+.. _i_ptrtoaddr:
+
+'``ptrtoaddr .. to``' Instruction
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      <result> = ptrtoaddr <ty> <value> to <ty2>             ; yields ty2
+
+Overview:
+"""""""""
+
+The '``ptrtoaddr``' instruction converts the pointer or a vector of
+pointers ``value`` to the underlying integer address (or vector of addresses) of
+type ``ty2``. This is different from :ref:`ptrtoint <i_ptrtoint>` in that it
+only operates on the index bits of the pointer and ignores all other bits, and
+does not capture the provenance of the pointer.
+
+Arguments:
+""""""""""
+
+The '``ptrtoaddr``' instruction takes a ``value`` to cast, which must be
+a value of type :ref:`pointer <t_pointer>` or a vector of pointers, and a
+type to cast it to ``ty2``, which must be must be the :ref:`integer <t_integer>`
+type (or vector of integers) matching the pointer index width of the address
+space of ``ty``.
+
+Semantics:
+""""""""""
+
+The '``ptrtoaddr``' instruction converts ``value`` to integer type ``ty2`` by
+interpreting the lowest index-width pointer representation bits as an integer.
+If the address size and the pointer representation size are the same and
+``value`` and ``ty2`` are the same size, then nothing is done (*no-op cast*)
+other than a type change.
+
+The ``ptrtoaddr`` instruction always :ref:`captures the address but not the provenance <pointercapture>`
+of the pointer argument.
+
+Example:
+""""""""
+This example assumes pointers in address space 1 are 64 bits in size with an
+address width of 32 bits (``p1:64:64:64:32`` :ref:`datalayout string<langref_datalayout>`)
+
+.. code-block:: llvm
+
+      %X = ptrtoaddr ptr addrspace(1) %P to i32              ; extracts low 32 bits of pointer
+      %Y = ptrtoaddr <4 x ptr addrspace(1)> %P to <4 x i32>  ; yields vector of low 32 bits for each pointer
+
 
 .. _i_inttoptr:
 
@@ -3253,7 +3354,7 @@ Syntax:
 
 ::
 
-      <result> = inttoptr <ty> <value> to <ty2>[, !dereferenceable !<deref_bytes_node>][, !dereferenceable_or_null !<deref_bytes_node>]             ; yields ty2
+      <result> = inttoptr <ty> <value> to <ty2>[, !dereferenceable !<deref_bytes_node>][, !dereferenceable_or_null !<deref_bytes_node>][, !nofree !<empty_node>]            ; yields ty2
 
 Overview:
 """""""""
@@ -3278,6 +3379,11 @@ metadata name ``<deref_bytes_node>`` corresponding to a metadata node with one
 ``i64`` entry.
 See ``dereferenceable_or_null`` metadata.
 
+The optional ``!nofree`` metadata must reference a single metadata name
+``<empty_node>`` corresponding to a metadata node with no entries.
+The existence of the ``!nofree`` metadata on the instruction tells the optimizer
+that the memory pointed by the pointer will not be freed after this point.
+
 Semantics:
 """"""""""
 
@@ -3287,6 +3393,9 @@ of the integer ``value``. If ``value`` is larger than the size of a
 pointer then a truncation is done. If ``value`` is smaller than the size
 of a pointer then a zero extension is done. If they are the same size,
 nothing is done (*no-op cast*).
+The behavior is equivalent to a ``bitcast``, however, the resulting value is not
+guaranteed to be dereferenceable (e.g., if the result type is a
+:ref:`non-integral pointers <nointptrtype>`).
 
 Example:
 """"""""
@@ -3323,10 +3432,10 @@ The '``bitcast``' instruction takes a value to cast, which must be a
 non-aggregate first class value, and a type to cast it to, which must
 also be a non-aggregate :ref:`first class <t_firstclass>` type. The
 bit sizes of ``value`` and the destination type, ``ty2``, must be
-identical. If the source type is a pointer, the destination type must
-also be a pointer of the same size. This instruction supports bitwise
-conversion of vectors to integers and to vectors of other types (as
-long as they have the same size).
+identical. If the source type is a pointer, the destination type must also be a
+pointer or a byte (vector of bytes) of the same size. This instruction supports
+bitwise conversion of vectors to integers and to vectors of other types (as long
+as they have the same size).
 
 Semantics:
 """"""""""
@@ -3336,14 +3445,43 @@ is always a *no-op cast* because no bits change with this
 conversion. The conversion is done as if the ``value`` had been stored
 to memory and read back as type ``ty2``. Pointer (or vector of
 pointers) types may only be converted to other pointer (or vector of
-pointers) types with the same address space through this instruction.
-To convert pointers to other types, use the :ref:`inttoptr <i_inttoptr>`
-or :ref:`ptrtoint <i_ptrtoint>` instructions first.
+pointers) types with the same address space or byte (or vector of bytes) types
+through this instruction. To convert pointers to other types, use the
+:ref:`inttoptr <i_inttoptr>` or :ref:`ptrtoint <i_ptrtoint>` instructions first.
 
 There is a caveat for bitcasts involving vector types in relation to
 endianness. For example ``bitcast <2 x i8> <value> to i16`` puts element zero
 of the vector in the least significant bits of the i16 for little-endian while
 element zero ends up in the most significant bits for big-endian.
+
+If ``value`` is of the :ref:`byte type <t_byte>`:
+
+* If ``ty2`` is a scalar type:
+
+    * If ``ty2`` is a byte type, the original bits are unchanged.
+
+    * If ``ty2`` is a pointer type:
+
+        * If at least one bit of ``value`` is ``poison``, the result is
+          ``poison``.
+
+        * If all bits of ``value`` are from the same pointer and are correctly
+          ordered (there were no pointer bit swaps), the result is that pointer.
+
+        * Otherwise, the result is a pointer with the address given by the
+          integer value of the input, and without provenance.
+
+    * If ``ty2`` is an integer or floating-point type:
+
+        * If at least one bit of ``value`` is ``poison``, the result is
+          ``poison``.
+
+        * Otherwise, the result is the value encoded by the input bits with
+          their provenance stripped without being exposed.
+
+* If ``ty2`` is a vector type, the input bits get sliced into chunks
+  corresponding to lanes of the output. Each lane is then converted using the
+  rules for scalar types above.
 
 Example:
 """"""""
@@ -3354,6 +3492,17 @@ Example:
       %Y = bitcast i32* %x to i16*      ; yields i16*:%x
       %Z = bitcast <2 x i32> %V to i64; ; yields i64: %V (depends on endianness)
       %Z = bitcast <2 x i32*> %V to <2 x i64*> ; yields <2 x i64*>
+
+      ; considering %bi to hold an integer and %bp to hold a pointer,
+      %a = bitcast b64 %bi to i64       ; returns an integer, no-op cast
+      %b = bitcast b64 %bp to i64       ; reinterprets the pointer as an integer, returning its address without exposing provenance
+      %c = bitcast b64 %bp to ptr       ; returns a pointer, no-op cast
+      %d = bitcast b64 %bi to ptr       ; reinterprets the integer as a pointer, returning a pointer with no provenance
+
+      %e = bitcast <2 x b32> %v to i64  ; reinterprets the raw bytes as an integer
+      %f = bitcast <2 x b32> %v to ptr  ; reinterprets the raw bytes as a pointer
+
+      %g = bitcast <2 x b32> %v to <4 x i16> ; reinterprets the raw bytes as integers
 
 .. _i_addrspacecast:
 
@@ -3398,8 +3547,11 @@ If the source is :ref:`poison <poisonvalues>`, the result is
 If the source is not :ref:`poison <poisonvalues>`, and both source and
 destination are :ref:`integral pointers <nointptrtype>`, and the
 result pointer is dereferenceable, the cast is assumed to be
-reversible (i.e. casting the result back to the original address space
+reversible (i.e., casting the result back to the original address space
 should yield the original bit pattern).
+
+Which address space casts are supported depends on the target. Unsupported
+address space casts return :ref:`poison <poisonvalues>`.
 
 Example:
 """"""""
@@ -3492,8 +3644,10 @@ code given as ``cond``. The comparison performed always yields either an
 #. ``sle``: interprets the operands as signed values and yields ``true``
    if ``op1`` is less than or equal to ``op2``.
 
-If the operands are :ref:`pointer <t_pointer>` typed, the pointer values
-are compared as if they were integers.
+If the operands are :ref:`pointer <t_pointer>` typed, the address bits of the
+pointers are compared as if they were integers. Non-address bits or external
+state are not compared. That is, ``icmp`` on pointers is equivalent to ``icmp``
+on the ``ptrtoaddr`` of the pointers.
 
 If the operands are integer vectors, then they are compared element by
 element. The result is an ``i1`` vector with the same number of elements
@@ -3655,7 +3809,7 @@ the value arguments to the PHI node. Only labels may be used as the
 label arguments.
 
 There must be no non-phi instructions between the start of a basic block
-and the PHI instructions: i.e. PHI instructions must be first in a basic
+and the PHI instructions: i.e., PHI instructions must be first in a basic
 block.
 
 For the purposes of the SSA form, the use of each incoming value is
@@ -3717,7 +3871,10 @@ class <t_firstclass>` type.
    :ref:`fast-math flags <fastmath>`. These are optimization hints to enable
    otherwise unsafe floating-point optimizations. Fast-math flags are only valid
    for selects that return :ref:`supported floating-point types
-   <fastmath_return_types>`.
+   <fastmath_return_types>`. Note that the presence of value which would otherwise result
+   in poison does not cause the result to be poison if the value is on the non-selected arm.
+   If :ref:`fast-math flags <fastmath>` are present, they are only applied to the result,
+   not both arms.
 
 Semantics:
 """"""""""
@@ -3737,7 +3894,9 @@ Example:
 
 .. code-block:: llvm
 
-      %X = select i1 true, i8 17, i8 42          ; yields i8:17
+      %X = select i1 true, i8 17, i8 42                   ; yields i8:17
+      %Y = select nnan i1 true, float 0.0, float NaN      ; yields float:0.0
+      %Z = select nnan i1 false, float 0.0, float NaN     ; yields float:poison
 
 
 .. _i_freeze:
@@ -3776,6 +3935,7 @@ instructions may yield different values.
 While ``undef`` and ``poison`` pointers can be frozen, the result is a
 non-dereferenceable pointer. See the
 :ref:`Pointer Aliasing Rules <pointeraliasing>` section for more information.
+Values of the :ref:`byte type <t_byte>` are frozen on a per-bit basis.
 If an aggregate value or vector is frozen, the operand is frozen element-wise.
 The padding of an aggregate isn't considered, since it isn't visible
 without storing it into memory and loading it with a different type.
@@ -3803,6 +3963,9 @@ Example:
       %v.fr = freeze <2 x i32> %v                ; element-wise freeze
       %d = extractelement <2 x i32> %v.fr, i32 0 ; not undef
       %add.f = add i32 %d, %d                    ; even number
+
+      %l = load b32, ptr %p                      ; may be uninitialized
+      %f = freeze b32 %l                         ; freezes on a per-bit basis
 
       ; branching on frozen value
       %poison = add nsw i1 %k, undef   ; poison
@@ -3927,7 +4090,7 @@ This instruction requires several arguments:
    -  All ABI-impacting function attributes, such as sret, byval, inreg,
       returned, and inalloca, must match.
    -  The caller and callee prototypes must match. Pointer types of parameters
-      or return types may differ in pointee type, but not in address space.
+      or return types do not differ in address space.
 
    On the other hand, if the calling convention is `swifttailcc` or `tailcc`:
 
@@ -3968,10 +4131,11 @@ This instruction requires several arguments:
    from the :ref:`datalayout string<langref_datalayout>` will be used.
 #. '``ty``': the type of the call instruction itself which is also the
    type of the return value. Functions that return no value are marked
-   ``void``.
+   ``void``. The signature is computed based on the return type and argument
+   types.
 #. '``fnty``': shall be the signature of the function being called. The
    argument types must match the types implied by this signature. This
-   type can be omitted if the function is not varargs.
+   is only required if the signature specifies a varargs type.
 #. '``fnptrval``': An LLVM value containing a pointer to a function to
    be called. In most cases, this is a direct function call, but
    indirect ``call``'s are just as possible, calling an arbitrary pointer
@@ -3992,6 +4156,16 @@ a specified function, with its incoming arguments bound to the specified
 values. Upon a '``ret``' instruction in the called function, control
 flow continues with the instruction after the function call, and the
 return value of the function is bound to the result argument.
+
+If the callee refers to an intrinsic function, the signature of the call must
+match the signature of the callee.  Otherwise, if the signature of the call
+does not match the signature of the called function, the behavior is
+target-specific.  For a significant mismatch, this likely results in undefined
+behavior. LLVM interprocedural optimizations generally only optimize calls
+where the signature of the caller matches the signature of the callee.
+
+Note that it is possible for the signatures to mismatch even if a call appears
+to be a "direct" call, like ``call void @f()``.
 
 Example:
 """"""""
@@ -4181,8 +4355,9 @@ ensures that each ``catchpad`` has exactly one predecessor block, and it always
 terminates in a ``catchswitch``.
 
 The ``args`` correspond to whatever information the personality routine
-requires to know if this is an appropriate handler for the exception. Control
-will transfer to the ``catchpad`` if this is the first appropriate handler for
+requires to determine if this is an appropriate handler for the exception.
+Each operand must be an alloca or a constant.
+Control will transfer to the ``catchpad`` if this is the first appropriate handler for
 the exception.
 
 The ``resultval`` has the type :ref:`token <t_token>` and is used to match the
@@ -4303,7 +4478,7 @@ an extra level of indentation. As an example:
   %inst2 = op2 %inst1, %c
 
 These debug records replace the prior :ref:`debug intrinsics<dbg_intrinsics>`.
-Debug records will be disabled if ``--write-experimental-debuginfo=false`` is
+Debug records will be disabled if ``--experimental-debuginfo-iterators=false`` is
 passed to LLVM; it is an error for both records and intrinsics to appear in the
 same module. More information about debug records can be found in the `LLVM
 Source Level Debugging <../SourceLevelDebugging.html#format-common-intrinsics>`_

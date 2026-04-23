@@ -9,6 +9,7 @@ LangRef: Constants
 
 .. _constants:
 
+
 Constants
 =========
 
@@ -25,17 +26,21 @@ Simple Constants
     Standard integers (such as '4') are constants of the :ref:`integer
     <t_integer>` type. They can be either decimal or
     hexadecimal. Decimal integers can be prefixed with - to represent
-    negative integers, e.g. '``-1234``'. Hexadecimal integers must be
+    negative integers, e.g., '``-1234``'. Hexadecimal integers must be
     prefixed with either u or s to indicate whether they are unsigned
     or signed respectively. e.g '``u0x8000``' gives 32768, whilst
     '``s0x8000``' gives -32768.
 
     Note that hexadecimal integers are sign extended from the number
-    of active bits, i.e. the bit width minus the number of leading
+    of active bits, i.e., the bit width minus the number of leading
     zeros. So '``s0x0001``' of type '``i16``' will be -1, not 1.
+**Byte constants**
+    Byte constants are used to initialize global variables of the :ref:`byte
+    <t_byte>` type. These are strictly equivalent to integer constants:
+    ``store b8 42, ptr %p`` is equivalent to ``store i8 42, ptr %p``.
 **Floating-point constants**
     Floating-point constants use standard decimal notation (e.g.
-    123.421), exponential notation (e.g. 1.23421e+2), or a more precise
+    123.421), exponential notation (e.g., 1.23421e+2), or a more precise
     hexadecimal notation (see below). The assembler requires the exact
     decimal value of a floating-point constant. For example, the
     assembler accepts 1.25 but rejects 1.3 because 1.3 is a repeating
@@ -61,7 +66,7 @@ and disassembly do not cause any bits to change in the constants.
 
 When using the hexadecimal form, constants of types bfloat, half, float, and
 double are represented using the 16-digit form shown above (which matches the
-IEEE754 representation for double); bfloat, half and float values must, however,
+IEEE 754 representation for double); bfloat, half and float values must, however,
 be exactly representable as bfloat, IEEE 754 half, and IEEE 754 single
 precision respectively. Hexadecimal format is always used for long double, and
 there are three forms of long double. The 80-bit format used by x86 is
@@ -117,7 +122,7 @@ constants and smaller complex constants.
     The string '``zeroinitializer``' can be used to zero initialize a
     value to zero of *any* type, including scalar and
     :ref:`aggregate <t_aggregate>` types. This is often used to avoid
-    having to print large zero initializers (e.g. for large arrays) and
+    having to print large zero initializers (e.g., for large arrays) and
     is always exactly equivalent to using explicit zero initializers.
 **Metadata node**
     A metadata node is a constant tuple without types. For example:
@@ -234,7 +239,7 @@ to be eliminated. This is because '``poison``' is stronger than '``undef``'.
 
       %D = undef
       %E = icmp slt %D, 4
-      %F = icmp gte %D, 4
+      %F = icmp sge %D, 4
 
     Safe:
       %A = undef
@@ -410,14 +415,14 @@ Addresses of Basic Blocks
 The '``blockaddress``' constant computes the address of the specified
 basic block in the specified function.
 
-It always has an ``ptr addrspace(P)`` type, where ``P`` is the address space
+It always has a ``ptr addrspace(P)`` type, where ``P`` is the address space
 of the function containing ``%block`` (usually ``addrspace(0)``).
 
 Taking the address of the entry block is illegal.
 
 This value only has defined behavior when used as an operand to the
 ':ref:`indirectbr <i_indirectbr>`' or for comparisons against null. Pointer
-equality tests between labels addresses results in undefined behavior ---
+equality tests between label addresses results in undefined behavior ---
 though, again, comparison against null is ok, and no label is equal to the null
 pointer. This may be passed around as an opaque pointer sized value as long as
 the bits are not inspected. This allows ``ptrtoint`` and arithmetic to be
@@ -450,7 +455,7 @@ The target function may not have ``extern_weak`` linkage.
   to the function.
 - ``dso_local_equivalent`` can be implemented with a stub that tail-calls the
   function. Many targets support relocations that resolve at link time to either
-  a function or a stub for it, depending on if the function is defined within the
+  a function or a stub for it, depending on whether the function is defined within the
   linkage unit; LLVM will use this when available. (This is commonly called a
   "PLT stub".) On other targets, the stub may need to be emitted explicitly.
 
@@ -483,7 +488,7 @@ need to refer to the actual function body.
 Pointer Authentication Constants
 --------------------------------
 
-``ptrauth (ptr CST, i32 KEY[, i64 DISC[, ptr ADDRDISC]?]?)``
+``ptrauth (ptr CST, i32 KEY[, i64 DISC[, ptr ADDRDISC[, ptr DS]?]?]?)``
 
 A '``ptrauth``' constant represents a pointer with a cryptographic
 authentication signature embedded into some bits, as described in the
@@ -512,6 +517,11 @@ Otherwise, the expression is equivalent to:
     %tmp2 = call i64 @llvm.ptrauth.sign(i64 ptrtoint (ptr CST to i64), i32 KEY, i64 %tmp1)
     %val = inttoptr i64 %tmp2 to ptr
 
+If the deactivation symbol operand ``DS`` has a non-null value,
+the semantics are as if a :ref:`deactivation-symbol operand bundle
+<deactivationsymbol>` were added to the ``llvm.ptrauth.sign`` intrinsic
+calls above, with ``DS`` as the only operand.
+
 .. _constantexprs:
 
 Constant Expressions
@@ -520,13 +530,15 @@ Constant Expressions
 Constant expressions are used to allow expressions involving other
 constants to be used as constants. Constant expressions may be of any
 :ref:`first class <t_firstclass>` type and may involve any LLVM operation
-that does not have side effects (e.g. load and call are not supported).
+that does not have side effects (e.g., load and call are not supported).
 The following is the syntax for constant expressions:
 
 ``trunc (CST to TYPE)``
     Perform the :ref:`trunc operation <i_trunc>` on constants.
 ``ptrtoint (CST to TYPE)``
     Perform the :ref:`ptrtoint operation <i_ptrtoint>` on constants.
+``ptrtoaddr (CST to TYPE)``
+    Perform the :ref:`ptrtoaddr operation <i_ptrtoaddr>` on constants.
 ``inttoptr (CST to TYPE)``
     Perform the :ref:`inttoptr operation <i_inttoptr>` on constants.
     This one is *really* dangerous!

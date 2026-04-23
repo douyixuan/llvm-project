@@ -9,6 +9,7 @@ LangRef: ThinLTO Summary
 
 .. _summary:
 
+
 ThinLTO Summary
 ===============
 
@@ -19,14 +20,14 @@ in syntax by a caret ('``^``').
 
 The summary is parsed into a bitcode output, along with the Module
 IR, via the "``llvm-as``" tool. Tools that parse the Module IR for the purposes
-of optimization (e.g. "``clang -x ir``" and "``opt``"), will ignore the
+of optimization (e.g., "``clang -x ir``" and "``opt``"), will ignore the
 summary entries (just as they currently ignore summary entries in a bitcode
 input file).
 
 Eventually, the summary will be parsed into a ModuleSummaryIndex object under
 the same conditions where summary index is currently built from bitcode.
 Specifically, tools that test the Thin Link portion of a ThinLTO compile
-(i.e. llvm-lto and llvm-lto2), or when parsing a combined index
+(i.e., llvm-lto and llvm-lto2), or when parsing a combined index
 for a distributed ThinLTO backend via clang's "``-fthinlto-index=<>``" flag
 (this part is not yet implemented, use llvm-as to create a bitcode object
 before feeding into thin link tools for now).
@@ -249,7 +250,7 @@ The optional ``Refs`` field looks like:
     refs: ((Ref)[, (Ref)]*)
 
 where each ``Ref`` contains a reference to the summary id of the referenced
-value (e.g. ``^1``).
+value (e.g., ``^1``).
 
 .. _typeidinfo_summary:
 
@@ -453,7 +454,7 @@ The '``llvm.global_ctors``' Global Variable
 The ``@llvm.global_ctors`` array contains a list of constructor
 functions, priorities, and an associated global or function.
 The functions referenced by this array will be called in ascending order
-of priority (i.e. lowest first) when the module is loaded. The order of
+of priority (i.e., lowest first) when the module is loaded. The order of
 functions with the same priority is not defined.
 
 If the third field is non-null, and points to a global variable
@@ -474,7 +475,7 @@ The '``llvm.global_dtors``' Global Variable
 The ``@llvm.global_dtors`` array contains a list of destructor
 functions, priorities, and an associated global or function.
 The functions referenced by this array will be called in descending
-order of priority (i.e. highest first) when the module is unloaded. The
+order of priority (i.e., highest first) when the module is unloaded. The
 order of functions with the same priority is not defined.
 
 If the third field is non-null, and points to a global variable
